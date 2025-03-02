@@ -17,8 +17,9 @@ typedef struct {
 
 Variable *variables[MAX_VARIABLES];
 int nextVariable = 0;
+bool foreground = true;
 
-void execute_command(char **args, bool foreground){
+void execute_command(char **args){
     pid_t pid = fork();
     if(pid < 0){
         printf("Error");
@@ -34,10 +35,12 @@ void execute_command(char **args, bool foreground){
     else if(foreground){
         waitpid(pid, NULL, 0);
     }
+    else if(!foreground){
+        foreground = true;
+    }
 }
 
 void export(char command[], Variable *newVariable){
-    int i;
     bool flag = false;
     newVariable->name[0] = '\0'; 
     newVariable->value[0] = '\0';
@@ -57,25 +60,70 @@ void export(char command[], Variable *newVariable){
             strncat(newVariable->value, &command[i], 1); 
         }
     }
-
-    variables[nextVariable++] = newVariable; 
-    printf("Stored Variable: Name: %s, Value: %s\n", newVariable->name, newVariable->value);
+    int len = strlen(newVariable->value);
+    while (len > 0 && newVariable->value[len - 1] == ' ') {
+        newVariable->value[--len] = '\0';
+    }
+    variables[nextVariable++] = newVariable;
 }
 
-void echo(char **args){
-    
+void echo(char command[]){
+    char output[MAX_INPUT];
+    bool flag = false;
+    int j = 0;
+
+    for (int i = 5; command[i] != '\0'; i++) {
+        if(command[i]=='"')continue;
+        output[j++] = command[i]; 
+    }
+    output[j] = '\0'; 
+    printf("%s\n", output);
+}
+
+char* evaluate(char *token){
+    static char temp[MAX_INPUT]; 
+
+    for (int i = 0; i < nextVariable; i++) {
+        sprintf(temp, "$%s", variables[i]->name);
+        if (strcmp(token, temp) == 0) {
+            return variables[i]->value;
+        }
+        snprintf(temp, sizeof(temp), "\"$%s\"", variables[i]->name);
+        if (strcmp(token, temp) == 0) {
+            return variables[i]->value;
+        }
+        snprintf(temp, sizeof(temp), "\"$%s", variables[i]->name);
+        if (strcmp(token, temp) == 0) {
+            return variables[i]->value;
+        }
+        snprintf(temp, sizeof(temp), "$%s\"", variables[i]->name);
+        if (strcmp(token, temp) == 0) {
+            return variables[i]->value;
+        }
+    }
+    return " ";
 }
 
 void parse(char command[], char *args[]){
     int i = 0;
     char *command_copy = strdup(command);
     char *token = strtok(command_copy, " ");
-    
+    char updated_command[MAX_INPUT];
+    updated_command[0] = '\0';
+
     while (token != NULL && i < MAX_ARGS-1) {
-        args[i++] = token;
+        if(token[0] == '$' || token[1] == '$') token = evaluate(token);
+        if (strcmp(token, "&") == 0) {
+            foreground = false;
+            token = "";
+        }
+        else args[i++] = token;
+        strcat(updated_command, token);
+        strcat(updated_command, " "); 
         token = strtok(NULL, " ");
     }
     args[i] = NULL;
+    strcpy(command, updated_command);
 }
 
 void shell(){
@@ -95,13 +143,13 @@ void shell(){
 
         char *args[MAX_ARGS];
         parse(command, args);
-        
+
         if (strcmp(args[0], "export") == 0) {
             Variable newVariable;
             export(command, &newVariable);
         }
         else if(strcmp(args[0], "echo") == 0){
-            echo(args);
+            echo(command);
         }
         else if(strcmp(args[0], "cd") == 0){
             chdir(args[1]);
@@ -109,7 +157,7 @@ void shell(){
         else if(strcmp(args[0], "exit") == 0){
             exit(0);
         }else {
-            execute_command(args, true);
+            execute_command(args);
         }
     }
     while(true);
